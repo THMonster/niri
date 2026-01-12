@@ -3442,7 +3442,7 @@ impl<W: LayoutElement> ScrollingSpace<W> {
 
         let active_col_x = self.column_x(self.active_column_idx);
         let target_view_pos = active_col_x + target_view_offset;
-        let target_snap = snapping_points
+        let mut target_snap = snapping_points
             .iter()
             .min_by_key(|snap| NotNan::new((snap.view_pos - target_view_pos).abs()).unwrap())
             .unwrap();
@@ -3485,6 +3485,15 @@ impl<W: LayoutElement> ScrollingSpace<W> {
 
                     new_col_idx = col_idx;
                 }
+
+                if self.columns.len() > 2 {
+                    if target_view_pos
+                        > snapping_points.last().unwrap().view_pos + (self.view_size.w / 2.)
+                    {
+                        target_snap = snapping_points.first().unwrap();
+                        new_col_idx = target_snap.col_idx;
+                    }
+                }
             } else {
                 for col_idx in (0..new_col_idx).rev() {
                     let col = &self.columns[col_idx];
@@ -3517,6 +3526,15 @@ impl<W: LayoutElement> ScrollingSpace<W> {
                     }
 
                     new_col_idx = col_idx;
+                }
+
+                if self.columns.len() > 2 {
+                    if target_view_pos
+                        < snapping_points.first().unwrap().view_pos - (self.view_size.w / 2.)
+                    {
+                        target_snap = snapping_points.last().unwrap();
+                        new_col_idx = target_snap.col_idx;
+                    }
                 }
             }
         }
