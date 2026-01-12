@@ -55,6 +55,7 @@ use crate::utils::{center, get_monotonic_time, ResizeEdge};
 
 pub mod backend_ext;
 pub mod move_grab;
+pub mod my_touchpad_gesture;
 pub mod pick_color_grab;
 pub mod pick_window_grab;
 pub mod resize_grab;
@@ -3747,9 +3748,10 @@ impl State {
             // We handled this event.
             return;
         } else if event.fingers() == 4 {
-            self.niri.layout.overview_gesture_begin();
-            self.niri.queue_redraw_all();
+            // self.niri.layout.overview_gesture_begin();
+            // self.niri.queue_redraw_all();
 
+            self.niri.my_touchpad_gesture.swipe_4f.begin();
             // We handled this event.
             return;
         }
@@ -3836,6 +3838,21 @@ impl State {
             }
         }
 
+        if let Some(direction) = self
+            .niri
+            .my_touchpad_gesture
+            .swipe_4f
+            .update_and_maybe_decide(delta_x, delta_y)
+        {
+            match direction {
+                my_touchpad_gesture::GestureDirection::Horizontal => {}
+                my_touchpad_gesture::GestureDirection::Vertical => {
+                    self.niri.layout.overview_gesture_begin();
+                }
+                _ => {}
+            }
+        }
+
         let timestamp = Duration::from_micros(event.time());
 
         let mut handled = false;
@@ -3869,6 +3886,10 @@ impl State {
             if redraw {
                 self.niri.queue_redraw_all();
             }
+            handled = true;
+        }
+
+        if self.swipe_4f_on_update(delta_x, delta_y) {
             handled = true;
         }
 
@@ -3914,6 +3935,10 @@ impl State {
             handled = true;
         }
 
+        if self.swipe_4f_on_end(event.cancelled()) {
+            handled = true;
+        }
+
         if handled {
             // We handled this event.
             return;
@@ -3937,6 +3962,22 @@ impl State {
     }
 
     fn on_gesture_pinch_begin<I: InputBackend>(&mut self, event: I::GesturePinchBeginEvent) {
+        if event.fingers() == 3 {
+            self.niri
+                .my_touchpad_gesture
+                .pinch_3f
+                .begin();
+            // We handled this event.
+            return;
+        } else if event.fingers() == 4 {
+            self.niri
+                .my_touchpad_gesture
+                .pinch_4f
+                .begin();
+            // We handled this event.
+            return;
+        }
+
         let serial = SERIAL_COUNTER.next_serial();
         let pointer = self.niri.seat.get_pointer().unwrap();
 
@@ -3955,6 +3996,18 @@ impl State {
     }
 
     fn on_gesture_pinch_update<I: InputBackend>(&mut self, event: I::GesturePinchUpdateEvent) {
+        let mut handled = false;
+        if self.pinch_3f_on_update(event.scale()) {
+            handled = true;
+        }
+        if self.pinch_4f_on_update(event.scale()) {
+            handled = true;
+        }
+        if handled {
+            // We handled this event.
+            return;
+        }
+
         let pointer = self.niri.seat.get_pointer().unwrap();
 
         if self.update_pointer_contents() {
@@ -3973,6 +4026,18 @@ impl State {
     }
 
     fn on_gesture_pinch_end<I: InputBackend>(&mut self, event: I::GesturePinchEndEvent) {
+        let mut handled = false;
+        if self.pinch_3f_on_end(event.cancelled()) {
+            handled = true;
+        }
+        if self.pinch_4f_on_end(event.cancelled()) {
+            handled = true;
+        }
+        if handled {
+            // We handled this event.
+            return;
+        }
+
         let serial = SERIAL_COUNTER.next_serial();
         let pointer = self.niri.seat.get_pointer().unwrap();
 
@@ -3991,6 +4056,18 @@ impl State {
     }
 
     fn on_gesture_hold_begin<I: InputBackend>(&mut self, event: I::GestureHoldBeginEvent) {
+        if event.fingers() == 3 {
+            // We handled this event.
+            // return;
+        } else if event.fingers() == 4 {
+            self.niri
+                .my_touchpad_gesture
+                .hold_4f
+                .begin(event.time_msec());
+            // We handled this event.
+            return;
+        }
+
         let serial = SERIAL_COUNTER.next_serial();
         let pointer = self.niri.seat.get_pointer().unwrap();
 
@@ -4009,6 +4086,15 @@ impl State {
     }
 
     fn on_gesture_hold_end<I: InputBackend>(&mut self, event: I::GestureHoldEndEvent) {
+        let mut handled = false;
+        if self.hold_4f_on_end(event.time_msec(), event.cancelled()) {
+            handled = true;
+        }
+        if handled {
+            // We handled this event.
+            return;
+        }
+
         let serial = SERIAL_COUNTER.next_serial();
         let pointer = self.niri.seat.get_pointer().unwrap();
 
