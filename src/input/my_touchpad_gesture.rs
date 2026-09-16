@@ -1,6 +1,9 @@
 use std::{collections::VecDeque, process::Child};
 
-use crate::{niri::State, utils::with_toplevel_role};
+use crate::{
+    niri::{Niri, State},
+    utils::with_toplevel_role,
+};
 
 static CHROME_CLOSE_TAB: &[&str] = &["key", "29:1", "17:1", "17:0", "29:0"];
 static CHROME_LEFT_TAB: &[&str] = &["key", "29:1", "42:1", "15:1", "15:0", "42:0", "29:0"];
@@ -180,16 +183,21 @@ impl State {
     }
 
     pub fn swipe_4f_on_update(&mut self, dx: f64, _dy: f64) -> bool {
-        match self.niri.my_touchpad_gesture.swipe_4f.decision {
+        let Niri {
+            layout,
+            my_touchpad_gesture,
+            ..
+        } = &mut self.niri;
+        let swipe = &mut my_touchpad_gesture.swipe_4f;
+
+        match swipe.decision {
             GestureState::Decided => (),
             _ => {
                 return false;
             }
         }
-        if self.niri.my_touchpad_gesture.swipe_4f.direction == GestureDirection::Horizontal {
-            let is_chrome = self
-                .niri
-                .layout
+        if swipe.direction == GestureDirection::Horizontal {
+            let is_chrome = layout
                 .focus()
                 .and_then(|x| {
                     with_toplevel_role(x.toplevel(), |role| {
@@ -201,17 +209,19 @@ impl State {
                 if !is_chrome {
                     break 'b1;
                 }
-                match self.niri.my_touchpad_gesture.swipe_4f.cx {
+                match swipe.cx {
                     f64::NEG_INFINITY..-150.0 => {
-                        self.niri.my_touchpad_gesture.spawn(CHROME_LEFT_TAB)
+                        swipe.cx = 0.;
+                        my_touchpad_gesture.spawn(CHROME_LEFT_TAB)
                     }
                     -150.0..150.0 => {
-                        self.niri.my_touchpad_gesture.swipe_4f.cx += dx;
-                        break 'b1;
+                        swipe.cx += dx;
                     }
-                    _ => self.niri.my_touchpad_gesture.spawn(CHROME_RIGHT_TAB),
+                    _ => {
+                        swipe.cx = 0.;
+                        my_touchpad_gesture.spawn(CHROME_RIGHT_TAB)
+                    }
                 }
-                self.niri.my_touchpad_gesture.swipe_4f.cx = 0.;
             }
             return true;
         }
@@ -239,24 +249,47 @@ impl State {
                         pinch.direction = GestureDirection::In;
                     }
                     0.9..1.1 => {
-                        pinch.direction = GestureDirection::Out;
-                    }
-                    _ => {
                         break 'b1;
                     }
+                    _ => {
+                        pinch.direction = GestureDirection::Out;
+                    }
                 }
+                pinch.scale = scale;
                 pinch.decision = GestureState::Decided;
             }
-            GestureState::Decided => {
-                pinch.scale = scale;
-            }
+            GestureState::Decided => match pinch.direction {
+                GestureDirection::In => {
+                    if scale + 0.1 < pinch.scale {
+                        pinch.scale = scale;
+                        let window = self.niri.window_under_cursor();
+                        if let Some(mapped) = window {
+                            let w = mapped.window.clone();
+                            self.niri.layout.set_window_width(
+                                Some(&w),
+                                niri_ipc::SizeChange::AdjustProportion(-4.),
+                            );
+                        }
+                    }
+                }
+                _ => {
+                    if scale > pinch.scale + 0.1 {
+                        pinch.scale = scale;
+                        let window = self.niri.window_under_cursor();
+                        if let Some(mapped) = window {
+                            let w = mapped.window.clone();
+                            self.niri.layout.toggle_window_width(Some(&w), true);
+                        }
+                    }
+                }
+            },
         }
         true
     }
 
     pub fn pinch_3f_on_end(&mut self, cancelled: bool) -> bool {
-        let niri = &mut self.niri;
-        match niri.my_touchpad_gesture.pinch_3f.decision {
+        let pinch = &mut self.niri.my_touchpad_gesture.pinch_3f;
+        match pinch.decision {
             GestureState::Unknown => {
                 return false;
             }
@@ -265,26 +298,14 @@ impl State {
                 if cancelled {
                     break 'b1;
                 }
-                match niri.my_touchpad_gesture.pinch_3f.scale {
-                    0.0..0.7 => {
-                        let window = niri.window_under_cursor();
-                        if let Some(mapped) = window {
-                            let w = mapped.window.clone();
-                            niri.layout.toggle_window_width(Some(&w), false);
-                        }
-                    }
+                match pinch.scale {
+                    0.0..0.7 => {}
                     0.7..1.3 => {}
-                    _ => {
-                        let window = niri.window_under_cursor();
-                        if let Some(mapped) = window {
-                            let w = mapped.window.clone();
-                            niri.layout.toggle_window_width(Some(&w), true);
-                        }
-                    }
+                    _ => {}
                 }
             }
         }
-        niri.my_touchpad_gesture.pinch_3f.reset();
+        pinch.reset();
         true
     }
 
@@ -300,10 +321,10 @@ impl State {
                         pinch.direction = GestureDirection::In;
                     }
                     0.9..1.1 => {
-                        pinch.direction = GestureDirection::Out;
+                        break 'b1;
                     }
                     _ => {
-                        break 'b1;
+                        pinch.direction = GestureDirection::Out;
                     }
                 }
                 pinch.decision = GestureState::Decided;
